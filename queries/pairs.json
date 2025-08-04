@@ -1,0 +1,70 @@
+GET suricata-2025.07.14/_search
+  {
+    "size": 0,
+    "query": {
+      "term": {
+        "suricata.eve.event_type": "flow"
+      }
+    },
+    "aggs": {
+      "flow_features": {
+        "composite": {
+          "size": 10000,
+          "sources": [
+            {
+              "src_ip": {
+                "terms": {
+                  "field": "source.ip"  // Changed from "src_ip"
+                }
+              }
+            },
+            {
+              "dest_ip": {
+                "terms": {
+                  "field": "destination.ip"  // Changed from "dest_ip"
+                }
+              }
+            }
+          ]
+        },
+        "aggs": {
+          "total_bytes_sent": {
+            "sum": {
+              "field": "suricata.eve.flow.bytes_toserver"
+            }
+          },
+          "total_bytes_received": {
+            "sum": {
+              "field": "suricata.eve.flow.bytes_toclient"
+            }
+          },
+          "total_packets_sent": {
+            "sum": {
+              "field": "suricata.eve.flow.pkts_toserver"
+            }
+          },
+          "total_packets_received": {
+            "sum": {
+              "field": "suricata.eve.flow.pkts_toclient"
+            }
+          },
+          "connection_count": {
+            "value_count": {
+              "field": "suricata.eve.flow_id"
+            }
+          },
+          "avg_flow_duration": {
+            "avg": {
+              "field": "suricata.eve.flow.age"
+            }
+          },
+          "unique_ports": {
+            "cardinality": {
+              "field": "destination.port"  // Changed from "dest_port"
+            }
+          }
+        }
+      }
+    }
+  }
+

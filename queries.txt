@@ -1,0 +1,287 @@
+# Network Flow Queries for ML Anomaly Detection
+
+## 1. Complete Flow Data with IP Addresses
+GET suricata-2025.07.14/_search
+{
+  "size": 10000,
+  "query": {
+    "term": {
+      "suricata.eve.event_type": "flow"
+    }
+  },
+  "_source": [
+    "src_ip",
+    "dest_ip", 
+    "src_port",
+    "dest_port",
+    "suricata.eve.flow.bytes_toserver",
+    "suricata.eve.flow.bytes_toclient",
+    "suricata.eve.flow.pkts_toserver", 
+    "suricata.eve.flow.pkts_toclient",
+    "suricata.eve.flow.start",
+    "suricata.eve.flow.end",
+    "suricata.eve.flow.age",
+    "suricata.eve.app_proto",
+    "suricata.eve.proto",
+    "@timestamp"
+  ],
+  "sort": [
+    {
+      "@timestamp": {
+        "order": "asc"
+      }
+    }
+  ]
+}
+
+## 2. Flow Aggregations by IP Pair
+GET suricata-2025.07.14/_search
+{
+  "size": 0,
+  "query": {
+    "term": {
+      "suricata.eve.event_type": "flow"
+    }
+  },
+  "aggs": {
+    "flow_features": {
+      "composite": {
+        "size": 10000,
+        "sources": [
+          {
+            "src_ip": {
+              "terms": {
+                "field": "src_ip"
+              }
+            }
+          },
+          {
+            "dest_ip": {
+              "terms": {
+                "field": "dest_ip"
+              }
+            }
+          }
+        ]
+      },
+      "aggs": {
+        "total_bytes_sent": {
+          "sum": {
+            "field": "suricata.eve.flow.bytes_toserver"
+          }
+        },
+        "total_bytes_received": {
+          "sum": {
+            "field": "suricata.eve.flow.bytes_toclient"
+          }
+        },
+        "total_packets_sent": {
+          "sum": {
+            "field": "suricata.eve.flow.pkts_toserver"
+          }
+        },
+        "total_packets_received": {
+          "sum": {
+            "field": "suricata.eve.flow.pkts_toclient"
+          }
+        },
+        "connection_count": {
+          "value_count": {
+            "field": "suricata.eve.flow_id"
+          }
+        },
+        "avg_flow_duration": {
+          "avg": {
+            "field": "suricata.eve.flow.age"
+          }
+        },
+        "unique_ports": {
+          "cardinality": {
+            "field": "dest_port"
+          }
+        }
+      }
+    }
+  }
+}
+
+## 3. High-Volume Flows (>10MB)
+GET suricata-2025.07.14/_search
+{
+  "size": 1000,
+  "query": {
+    "bool": {
+      "must": [
+        {
+          "term": {
+            "suricata.eve.event_type": "flow"
+          }
+        },
+        {
+          "range": {
+            "suricata.eve.flow.bytes_toserver": {
+              "gte": 10485760
+            }
+          }
+        }
+      ]
+    }
+  },
+  "_source": [
+    "src_ip",
+    "dest_ip",
+    "suricata.eve.flow.bytes_toserver",
+    "suricata.eve.flow.bytes_toclient",
+    "suricata.eve.flow.age",
+    "@timestamp"
+  ]
+}
+
+## 4. Time-Series Analysis
+GET suricata-2025.07.14/_search
+{
+  "size": 0,
+  "query": {
+    "term": {
+      "suricata.eve.event_type": "flow"
+    }
+  },
+  "aggs": {
+    "traffic_over_time": {
+      "date_histogram": {
+        "field": "@timestamp",
+        "calendar_interval": "5m"
+      },
+      "aggs": {
+        "total_bytes": {
+          "sum": {
+            "script": {
+              "source": "doc['suricata.eve.flow.bytes_toserver'].value + doc['suricata.eve.flow.bytes_toclient'].value"
+            }
+          }
+        },
+        "total_flows": {
+          "value_count": {
+            "field": "suricata.eve.flow_id"
+          }
+        },
+        "unique_ips": {
+          "cardinality": {
+            "field": "src_ip"
+          }
+        }
+      }
+    }
+  }
+}
+
+## 5. Internal vs External Traffic
+GET suricata-2025.07.14/_search
+{
+  "size": 0,
+  "query": {
+    "term": {
+      "suricata.eve.event_type": "flow"
+    }
+  },
+  "aggs": {
+    "traffic_type": {
+      "filters": {
+        "filters": {
+          "internal_192": {
+            "prefix": {
+              "src_ip": "192.168"
+            }
+          },
+          "internal_10": {
+            "prefix": {
+              "src_ip": "10."
+            }
+          },
+          "external": {
+            "bool": {
+              "must_not": [
+                {
+                  "prefix": {
+                    "src_ip": "192.168"
+                  }
+                },
+                {
+                  "prefix": {
+                    "src_ip": "10."
+                  }
+                }
+              ]
+            }
+          }
+        }
+      },
+      "aggs": {
+        "total_bytes": {
+          "sum": {
+            "script": {
+              "source": "doc['suricata.eve.flow.bytes_toserver'].value + doc['suricata.eve.flow.bytes_toclient'].value"
+            }
+          }
+        }
+      }
+    }
+  }
+}
+
+## 6. Suspicious Activity Detection
+GET suricata-2025.07.14/_search
+{
+  "size": 1000,
+  "query": {
+    "bool": {
+      "must": [
+        {
+          "term": {
+            "suricata.eve.event_type": "flow"
+          }
+        }
+      ],
+      "should": [
+        {
+          "range": {
+            "suricata.eve.flow.bytes_toserver": {
+              "gte": 100000000
+            }
+          }
+        },
+        {
+          "range": {
+            "suricata.eve.flow.pkts_toserver": {
+              "gte": 10000
+            }
+          }
+        },
+        {
+          "range": {
+            "suricata.eve.flow.age": {
+              "gte": 3600
+            }
+          }
+        }
+      ],
+      "minimum_should_match": 1
+    }
+  },
+  "_source": [
+    "src_ip",
+    "dest_ip",
+    "suricata.eve.flow.bytes_toserver",
+    "suricata.eve.flow.bytes_toclient",
+    "suricata.eve.flow.age",
+    "@timestamp"
+  ]
+}
+
+## Key Features for ML Models:
+# - bytes_ratio = bytes_sent / bytes_received
+# - packets_per_second = total_packets / duration  
+# - avg_packet_size = total_bytes / total_packets
+# - flow_rate = flows_per_hour
+# - port_diversity = unique_ports / total_connections
+# - external_ratio = external_connections / total_connections
